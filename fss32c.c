@@ -68,6 +68,7 @@ typedef struct {
 } params;
 
 typedef struct {
+	VECTOR wpre;
     VECTOR w;
     VECTOR deltaf;
     VECTOR deltax;
@@ -82,10 +83,10 @@ typedef struct {
 * 	di memoria, ma a scelta del candidato possono essere 
 * 	memorizzate mediante array di array (float**).
 * 
-* 	In entrambi i casi il candidato dovrà inoltre scegliere se memorizzare le
+* 	In entrambi i casi il candidato dovrÃ  inoltre scegliere se memorizzare le
 * 	matrici per righe (row-major order) o per colonne (column major-order).
 *
-* 	L'assunzione corrente è che le matrici siano in row-major order.
+* 	L'assunzione corrente Ã¨ che le matrici siano in row-major order.
 * 
 */
 
@@ -119,7 +120,7 @@ void dealloc_matrix(MATRIX mat) {
 * 	successivi N*M*4 byte: matrix data in row-major order --> numeri floating-point a precisione singola
 * 
 *****************************************************************************
-*	Se lo si ritiene opportuno, è possibile cambiare la codifica in memoria
+*	Se lo si ritiene opportuno, Ã¨ possibile cambiare la codifica in memoria
 * 	della matrice. 
 *****************************************************************************
 * 
@@ -216,6 +217,21 @@ type funzione(VECTOR vettore,params* input,int inizio,int dim){
 	return (type)exp(prodScalare(vettore,vettore,inizio,inizio,input->d)) + prodScalare(vettore,vettore,inizio,inizio,dim)- prodScalare(input->c,vettore,0,inizio,dim);
 }
 
+type distEuclidea(VECTOR v1, VECTOR v2, int inizio1, int inizio2, int dim){
+	type v=0;
+	for(int i=0;i<dim;i++){
+		v+= ((v2[i]-v1[i+inizio])*(v2[i]-v1[i+inizio]))
+	}
+	return sqrt(v)
+}
+
+type pesoTot(VECTOR v, int dim){
+	type tmp=0;
+	for(int i=0; i<dim;i++){
+		tmp+=v[i];
+	}
+	return tmp;
+}
 
 void fss(params* input){
     int it =0;   
@@ -278,6 +294,10 @@ void alimentazione(params* input, var* vars){
    if(!(max<0.000001&&max>-0.000001)){
    	printf("%f",max);
    	for(int pesce=0;pesce<input->np;pesce+=1){
+		vars->wpre[pesce]=vars->w[pesce];
+		//mi tengo un VECTOR di copia relativo ai pesi precedenti prima che vengano aggiornati 
+		//mi servirÃ  successivamente per stabilire il segno dell'equazione del "movimento volitivo"
+		
    		vars->w[pesce]=vars->w[pesce]+ vars->deltaf[pesce]/max;
    	}
    }
@@ -339,18 +359,50 @@ void baricentro(params* input, var* vars){
 }
 
 
-void movimentoVolitivo(params* input){
+void movimentoVolitivo(params* input, vars* var){
+	VECTOR diff = malloc(sizeof(type)*input->d);
+	type pesoTotAtt = pesoTot(var->w,input->np);
+	type pesoTotPre = pesoTot(var->wpre,input->np);
+	
+	if(pesoTotAtt-pesoTotPre>0){ //segno "-" nell'equazione (il banco si avvicina al baricentro)
+		for(int pesce=0;pesce<input->np; pesce++){
+			subVettori(input->x,var->baricentro,diff,pesce*input->d,0, input->d);
+			type dist = distEuclidea(input->x, var->baricentro,pesce*input->d,0,input->d);
+			for(int i=0;i<input->d;i++){
+				input->x[pesce*input->d+i]=input->x[pesce*input->d+i]-input->stepvol* //rand(0,1) 
+					*(diff/dist);
+			}
+	        }
+	}
+	else{ //segno "+" nell'equazione (il banco si allontana dal baricentro)
+		for(int pesce=0;pesce<input->np; pesce++){
+			subVettori(input->x,var->baricentro,diff,pesce*input->d,0, input->d);
+			type dist = distEuclidea(input->x, var->baricentro,pesce*input->d,0,input->d);
+			for(int i=0;i<input->d;i++){
+				input->x[pesce*input->d+i]=input->x[pesce*input->d+i]+input->stepvol* //rand(0,1) 
+					*(diff/dist);
+			}
+	        }
+	}
+	free(diff);
+	
 }
+
 void aggiornaParametri(params* input){
+	input->stepind=input->stepind-(input->stepind/input->iter);
+	input->stepvol=input->stepvol-(input->stepvol/input->iter);
 }
+
 void init(params* input, var* vars){
     vars->w=malloc(sizeof(type)*input->np);
+	vars->wpre=malloc(sizeof(type)*input->np);
     vars->deltax=malloc(sizeof(type)*input->np*input->d);
     vars->deltaf=malloc(sizeof(type)*input->np);
     vars->baricentro=malloc(sizeof(type)*input->d);
     vars->rand=0;
     for(int i=0;i<input->np;i++){
-        vars->w[i]=input->wscale/2;    
+        vars->w[i]=input->wscale/2;
+	    vars->wpre[i]=NULL;
     }
     for(int i=0;i<input->d;i++){
     	vars->baricentro[i]=0;
